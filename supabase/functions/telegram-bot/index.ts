@@ -1,0 +1,280 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+const TELEGRAM_BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN')!;
+const TELEGRAM_ADMIN_CHAT_ID = Deno.env.get('TELEGRAM_ADMIN_CHAT_ID')!;
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+async function sendTelegramMessage(chatId: string | number, text: string, options: any = {}) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+  
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      parse_mode: 'HTML',
+      ...options,
+    }),
+  });
+  
+  return response.json();
+}
+
+async function answerCallbackQuery(callbackQueryId: string, text?: string) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`;
+  
+  await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      callback_query_id: callbackQueryId,
+      text,
+    }),
+  });
+}
+
+async function editMessageReplyMarkup(chatId: string | number, messageId: number) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageReplyMarkup`;
+  
+  await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: { inline_keyboard: [] },
+    }),
+  });
+}
+
+async function handleStart(chatId: number, user: any) {
+  console.log('Handling /start command for user:', user);
+  
+  // Check if user exists in profiles
+  const { data: existingProfile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('telegram_id', user.id)
+    .maybeSingle();
+  
+  if (!existingProfile) {
+    // Create new profile
+    await supabase.from('profiles').insert({
+      telegram_id: user.id,
+      username: user.username || null,
+      first_name: user.first_name || 'User',
+      last_name: user.last_name || null,
+      is_premium: user.is_premium || false,
+    });
+    console.log('Created new profile for telegram user:', user.id);
+  }
+  
+  const welcomeMessage = `👋 <b>Добро пожаловать в BoysHub!</b>
+
+Это платформа для обмена знаниями и опытом.
+
+🔹 <b>Что вы можете делать:</b>
+• Читать статьи от авторов сообщества
+• Слушать подкасты
+• Писать свои статьи
+• Получать репутацию за полезный контент
+
+🔹 <b>Как начать:</b>
+Откройте мини-приложение, чтобы погрузиться в мир BoysHub!
+
+📱 Нажмите на кнопку меню, чтобы открыть приложение.
+
+💡 <i>Ваши статьи проходят модерацию перед публикацией.</i>`;
+
+  await sendTelegramMessage(chatId, welcomeMessage);
+}
+
+async function handleCallbackQuery(callbackQuery: any) {
+  const { id, data, message, from } = callbackQuery;
+  console.log('Handling callback query:', data);
+  
+  // Parse callback data: action:articleId
+  const [action, articleId] = data.split(':');
+  
+  if (action === 'approve') {
+    // Approve article
+    const { error } = await supabase
+      .from('articles')
+      .update({ status: 'approved' })
+      .eq('id', articleId);
+    
+    if (error) {
+      console.error('Error approving article:', error);
+      await answerCallbackQuery(id, '❌ Ошибка при одобрении');
+      return;
+    }
+    
+    // Get article info for notification
+    const { data: article } = await supabase
+      .from('articles')
+      .select('*, author:author_id(telegram_id, first_name)')
+      .eq('id', articleId)
+      .maybeSingle();
+    
+    // Notify author
+    if (article?.author?.telegram_id) {
+      await sendTelegramMessage(
+        article.author.telegram_id,
+        `✅ <b>Ваша статья одобрена!</b>\n\n📝 "${article.title}"\n\nСтатья опубликована и доступна для всех пользователей.`
+      );
+    }
+    
+    await answerCallbackQuery(id, '✅ Статья одобрена');
+    await editMessageReplyMarkup(message.chat.id, message.message_id);
+    await sendTelegramMessage(message.chat.id, `✅ Статья "${article?.title}" одобрена`);
+    
+  } else if (action === 'reject') {
+    // Set pending rejection state - ask for reason
+    await answerCallbackQuery(id, '📝 Напишите причину отклонения');
+    await editMessageReplyMarkup(message.chat.id, message.message_id);
+    
+    // Store rejection state in admin_settings temporarily
+    await supabase.from('admin_settings').upsert({
+      key: `pending_rejection_${from.id}`,
+      value: articleId,
+    });
+    
+    await sendTelegramMessage(
+      message.chat.id,
+      `📝 Напишите причину отклонения статьи в следующем сообщении:`
+    );
+  }
+}
+
+async function handleRejectionReason(chatId: number, userId: number, text: string) {
+  // Check if there's a pending rejection
+  const { data: pending } = await supabase
+    .from('admin_settings')
+    .select('value')
+    .eq('key', `pending_rejection_${userId}`)
+    .maybeSingle();
+  
+  if (!pending) return false;
+  
+  const articleId = pending.value;
+  
+  // Update article with rejection
+  const { error } = await supabase
+    .from('articles')
+    .update({ 
+      status: 'rejected',
+      rejection_reason: text 
+    })
+    .eq('id', articleId);
+  
+  if (error) {
+    console.error('Error rejecting article:', error);
+    await sendTelegramMessage(chatId, '❌ Ошибка при отклонении статьи');
+    return true;
+  }
+  
+  // Get article info
+  const { data: article } = await supabase
+    .from('articles')
+    .select('*, author:author_id(telegram_id, first_name)')
+    .eq('id', articleId)
+    .maybeSingle();
+  
+  // Notify author
+  if (article?.author?.telegram_id) {
+    await sendTelegramMessage(
+      article.author.telegram_id,
+      `❌ <b>Ваша статья отклонена</b>\n\n📝 "${article.title}"\n\n<b>Причина:</b> ${text}\n\nВы можете исправить статью и отправить на модерацию повторно.`
+    );
+  }
+  
+  // Clear pending state
+  await supabase
+    .from('admin_settings')
+    .delete()
+    .eq('key', `pending_rejection_${userId}`);
+  
+  await sendTelegramMessage(chatId, `❌ Статья "${article?.title}" отклонена\n\nПричина: ${text}`);
+  
+  return true;
+}
+
+Deno.serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const update = await req.json();
+    console.log('Received Telegram update:', JSON.stringify(update));
+
+    // Handle callback queries (button presses)
+    if (update.callback_query) {
+      await handleCallbackQuery(update.callback_query);
+      return new Response('OK', { headers: corsHeaders });
+    }
+
+    // Handle messages
+    if (update.message) {
+      const { chat, text, from } = update.message;
+      
+      // Handle /start command
+      if (text === '/start') {
+        await handleStart(chat.id, from);
+        return new Response('OK', { headers: corsHeaders });
+      }
+      
+      // Check if this is a rejection reason from admin
+      if (chat.id.toString() === TELEGRAM_ADMIN_CHAT_ID) {
+        const handled = await handleRejectionReason(chat.id, from.id, text);
+        if (handled) {
+          return new Response('OK', { headers: corsHeaders });
+        }
+      }
+    }
+
+    return new Response('OK', { headers: corsHeaders });
+  } catch (error) {
+    console.error('Error processing webhook:', error);
+    return new Response('Error', { status: 500, headers: corsHeaders });
+  }
+});
+
+// Export function to send moderation request
+export async function sendModerationRequest(article: any) {
+  const message = `📝 <b>Новая статья на модерацию</b>
+
+<b>Заголовок:</b> ${article.title}
+
+<b>Автор:</b> ${article.is_anonymous ? 'Аноним' : article.author?.first_name || 'Unknown'}
+
+<b>Превью:</b>
+${article.preview || article.body?.substring(0, 200) || 'Нет превью'}...
+
+<b>ID:</b> <code>${article.id}</code>`;
+
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: '✅ Одобрить', callback_data: `approve:${article.id}` },
+        { text: '❌ Отклонить', callback_data: `reject:${article.id}` },
+      ],
+    ],
+  };
+
+  const result = await sendTelegramMessage(TELEGRAM_ADMIN_CHAT_ID, message, {
+    reply_markup: keyboard,
+  });
+
+  return result;
+}
