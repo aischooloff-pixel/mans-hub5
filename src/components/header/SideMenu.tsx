@@ -1,8 +1,18 @@
-import { X, Home, FileText, Bookmark, User, Crown, Settings, Bell, HelpCircle, MessageSquare } from 'lucide-react';
+import {
+  X,
+  Home,
+  FileText,
+  Bookmark,
+  User,
+  Crown,
+  Settings,
+  Bell,
+  HelpCircle,
+  MessageSquare,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import { currentUser } from '@/data/mockData';
+import { useProfile } from '@/hooks/use-profile';
 
 interface SideMenuProps {
   isOpen: boolean;
@@ -10,7 +20,20 @@ interface SideMenuProps {
 }
 
 export function SideMenu({ isOpen, onClose }: SideMenuProps) {
+  const { profile } = useProfile();
+
   if (!isOpen) return null;
+
+  const displayName = profile?.show_name !== false ? profile?.first_name || 'Пользователь' : 'Аноним';
+  const displayUsername =
+    profile?.show_username !== false ? profile?.username || 'user' : profile ? 'скрыт' : 'гость';
+
+  const displayAvatar =
+    profile?.show_avatar !== false
+      ? profile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile?.username || profile?.first_name || 'user'}`
+      : `https://api.dicebear.com/7.x/shapes/svg?seed=${profile?.id || 'guest'}`;
+
+  const isPremium = !!profile?.is_premium;
 
   const menuItems = [
     { icon: Home, label: 'Главная', path: '/' },
@@ -38,22 +61,29 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
         <div className="flex items-center justify-between border-b border-border p-4">
           <div className="flex items-center gap-3">
             <img
-              src={currentUser.avatar_url}
-              alt={currentUser.first_name}
-              className="h-10 w-10 rounded-full"
+              src={displayAvatar}
+              alt={displayName}
+              className="h-10 w-10 rounded-full border border-border"
+              loading="lazy"
             />
             <div>
-              <p className="font-heading font-semibold">{currentUser.first_name}</p>
-              <p className="text-xs text-muted-foreground">@{currentUser.username}</p>
+              <p className="font-heading font-semibold">{displayName}</p>
+              <p className="text-xs text-muted-foreground">@{displayUsername}</p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Закрыть меню">
             <X className="h-5 w-5" />
           </Button>
         </div>
 
+        {!profile && (
+          <div className="border-b border-border p-4 text-sm text-muted-foreground">
+            Откройте приложение из Telegram, чтобы загрузить ваш профиль.
+          </div>
+        )}
+
         {/* Menu items */}
-        <nav className="p-4">
+        <nav className="p-4" aria-label="Основная навигация">
           <ul className="space-y-2">
             {menuItems.map((item) => (
               <li key={item.label}>
@@ -84,7 +114,7 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
         </nav>
 
         {/* Premium CTA */}
-        {!currentUser.is_premium && (
+        {!isPremium && (
           <div className="absolute bottom-4 left-4 right-4">
             <Link to="/profile?premium=true" onClick={onClose}>
               <Button className="w-full gap-2">
@@ -98,3 +128,4 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
     </div>
   );
 }
+

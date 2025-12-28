@@ -31,8 +31,15 @@ async function hmacSha256Hex(key: ArrayBuffer, data: string) {
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function sha256Raw(data: string) {
-  return crypto.subtle.digest('SHA-256', enc(data));
+async function hmacSha256Raw(key: string, data: string) {
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    enc(key),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  return crypto.subtle.sign('HMAC', cryptoKey, enc(data));
 }
 
 type VerifyDebug = {
@@ -68,7 +75,7 @@ async function verifyTelegramInitData(initData: string): Promise<{ user: any | n
   pairs.sort();
   const dataCheckString = pairs.join('\n');
 
-  const secretKey = await sha256Raw(TELEGRAM_BOT_TOKEN);
+  const secretKey = await hmacSha256Raw('WebAppData', TELEGRAM_BOT_TOKEN);
   const checkHash = await hmacSha256Hex(secretKey, dataCheckString);
 
   if (checkHash !== hash) {
