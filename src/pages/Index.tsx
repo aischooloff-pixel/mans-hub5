@@ -3,6 +3,7 @@ import { Header } from '@/components/layout/Header';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { ArticleCarousel } from '@/components/articles/ArticleCarousel';
 import { PodcastCarousel } from '@/components/podcasts/PodcastCarousel';
+import { PlaylistsSection } from '@/components/playlists/PlaylistsSection';
 import { PremiumBanner } from '@/components/premium/PremiumBanner';
 import { CategoryList } from '@/components/categories/CategoryList';
 import { TelegramCTA } from '@/components/cta/TelegramCTA';
@@ -178,6 +179,9 @@ export default function Index() {
           podcasts={mockPodcasts}
           className="mb-8"
         />
+
+        {/* Playlists */}
+        <PlaylistsSection className="mb-8" />
 
         {/* Premium Banner */}
         {!isPremium && (
