@@ -99,8 +99,18 @@ export default function Index() {
     };
 
     window.addEventListener('open-article-detail', handleOpenArticle as EventListener);
+    
+    const handleOpenPublicProfile = (e: CustomEvent<{ authorId: string }>) => {
+      if (e.detail?.authorId) {
+        setPublicProfileAuthorId(e.detail.authorId);
+        setIsPublicProfileOpen(true);
+      }
+    };
+    window.addEventListener('open-public-profile', handleOpenPublicProfile as EventListener);
+    
     return () => {
       window.removeEventListener('open-article-detail', handleOpenArticle as EventListener);
+      window.removeEventListener('open-public-profile', handleOpenPublicProfile as EventListener);
     };
   }, [articles]);
 
@@ -334,7 +344,7 @@ export default function Index() {
         </section>
 
         {/* Reviews Section */}
-        <ReviewsSection className="mb-8" />
+        <ReviewsSection className="mb-8" onAuthorClick={handleAuthorClick} />
 
         {/* Telegram CTA */}
         <TelegramCTA className="mb-8" />

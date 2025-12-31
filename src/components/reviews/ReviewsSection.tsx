@@ -7,6 +7,7 @@ import { useTelegram } from '@/hooks/use-telegram';
 
 interface ReviewsSectionProps {
   className?: string;
+  onAuthorClick?: (authorId: string) => void;
 }
 
 interface ReviewStats {
@@ -14,7 +15,7 @@ interface ReviewStats {
   avgRating: number;
 }
 
-export function ReviewsSection({ className }: ReviewsSectionProps) {
+export function ReviewsSection({ className, onAuthorClick }: ReviewsSectionProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [stats, setStats] = useState<ReviewStats>({ totalReviews: 0, avgRating: 0 });
   const [isLoading, setIsLoading] = useState(true);
@@ -97,7 +98,8 @@ export function ReviewsSection({ className }: ReviewsSectionProps) {
         onClose={() => {
           setIsModalOpen(false);
           loadStats();
-        }} 
+        }}
+        onAuthorClick={onAuthorClick}
       />
     </>
   );

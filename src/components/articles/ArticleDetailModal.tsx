@@ -350,16 +350,26 @@ export function ArticleDetailModal({
                     <div key={c.id} className="space-y-2">
                       {/* Main comment */}
                       <div className="flex gap-3">
-                        <img
-                          src={c.author?.avatar_url || '/placeholder.svg'}
-                          alt=""
-                          className="h-8 w-8 rounded-full object-cover shrink-0"
-                        />
+                        <button
+                          onClick={() => c.author?.id && onAuthorClick?.(c.author.id)}
+                          className="shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                          disabled={!c.author?.id || !onAuthorClick}
+                        >
+                          <img
+                            src={c.author?.avatar_url || '/placeholder.svg'}
+                            alt=""
+                            className="h-8 w-8 rounded-full object-cover"
+                          />
+                        </button>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium">
+                            <button
+                              onClick={() => c.author?.id && onAuthorClick?.(c.author.id)}
+                              className="text-sm font-medium hover:text-primary transition-colors"
+                              disabled={!c.author?.id || !onAuthorClick}
+                            >
                               {c.author?.first_name || 'Пользователь'}
-                            </span>
+                            </button>
                             {c.author?.is_premium && (
                               <Crown className="h-3 w-3 text-yellow-500" />
                             )}
@@ -406,16 +416,26 @@ export function ArticleDetailModal({
                         <div className="ml-8 pl-4 border-l-2 border-primary/30 space-y-3">
                           {replies.map((reply) => (
                             <div key={reply.id} className="flex gap-3 bg-secondary/30 rounded-lg p-2">
-                              <img
-                                src={reply.author?.avatar_url || '/placeholder.svg'}
-                                alt=""
-                                className="h-6 w-6 rounded-full object-cover shrink-0"
-                              />
+                              <button
+                                onClick={() => reply.author?.id && onAuthorClick?.(reply.author.id)}
+                                className="shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                                disabled={!reply.author?.id || !onAuthorClick}
+                              >
+                                <img
+                                  src={reply.author?.avatar_url || '/placeholder.svg'}
+                                  alt=""
+                                  className="h-6 w-6 rounded-full object-cover"
+                                />
+                              </button>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-xs font-medium">
+                                  <button
+                                    onClick={() => reply.author?.id && onAuthorClick?.(reply.author.id)}
+                                    className="text-xs font-medium hover:text-primary transition-colors"
+                                    disabled={!reply.author?.id || !onAuthorClick}
+                                  >
                                     {reply.author?.first_name || 'Пользователь'}
-                                  </span>
+                                  </button>
                                   {reply.author?.is_premium && (
                                     <Crown className="h-2.5 w-2.5 text-yellow-500" />
                                   )}

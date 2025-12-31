@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Crown, Star, FileText, Calendar, ExternalLink, Globe, Flag, Package, Play } from 'lucide-react';
+import { X, Crown, Star, FileText, Calendar, ExternalLink, Globe, Flag, Package, Play, Plus, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
@@ -7,11 +7,28 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ArticleDetailModal } from '@/components/articles/ArticleDetailModal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { useTelegram } from '@/hooks/use-telegram';
 import { toast } from 'sonner';
 import { Loader2, Send, CheckCircle } from 'lucide-react';
 import { PodcastPlayerModal } from '@/components/podcasts/PodcastPlayerModal';
 import type { Article } from '@/types';
+
+interface ReputationHistoryEntry {
+  id: string;
+  value: number;
+  created_at: string | null;
+  from_user: {
+    id: string;
+    first_name: string | null;
+    username: string | null;
+    avatar_url: string | null;
+    show_name: boolean;
+    show_username: boolean;
+    show_avatar: boolean;
+    subscription_tier: string;
+  } | null;
+}
 
 interface PublicProfile {
   id: string;
@@ -56,12 +73,19 @@ export function PublicProfileModal({ isOpen, onClose, authorId }: PublicProfileM
   const [articlesLoading, setArticlesLoading] = useState(true);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [articleDetailOpen, setArticleDetailOpen] = useState(false);
+  const [onAuthorClick, setOnAuthorClick] = useState<((id: string) => void) | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState('');
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportSuccess, setReportSuccess] = useState(false);
   const [videoPlayerOpen, setVideoPlayerOpen] = useState(false);
   const [videoToPlay, setVideoToPlay] = useState<{ id: string; title: string } | null>(null);
+  const [reputationModalOpen, setReputationModalOpen] = useState(false);
+  const [reputationHistory, setReputationHistory] = useState<ReputationHistoryEntry[]>([]);
+  const [reputationLoading, setReputationLoading] = useState(false);
+  const [giveRepOpen, setGiveRepOpen] = useState(false);
+  const [giveRepReason, setGiveRepReason] = useState('');
+  const [giveRepSubmitting, setGiveRepSubmitting] = useState(false);
   const { getInitData } = useTelegram();
 
   useEffect(() => {
@@ -159,6 +183,92 @@ export function PublicProfileModal({ isOpen, onClose, authorId }: PublicProfileM
     } finally {
       setReportSubmitting(false);
     }
+  };
+
+  const loadReputationHistory = async () => {
+    if (!authorId) return;
+    setReputationLoading(true);
+    
+    try {
+      const initData = getInitData();
+      if (!initData) {
+        toast.error('Не удалось авторизоваться');
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke('tg-user-reputation', {
+        body: { initData, userId: authorId },
+      });
+
+      if (!error && data) {
+        setReputationHistory(data.history || []);
+      }
+    } catch (err) {
+      console.error('Error loading reputation history:', err);
+    } finally {
+      setReputationLoading(false);
+    }
+  };
+
+  const handleGiveRep = async () => {
+    if (!giveRepReason.trim() || !authorId) {
+      toast.error('Укажите причину');
+      return;
+    }
+
+    const initData = getInitData();
+    if (!initData) {
+      toast.error('Не удалось авторизоваться');
+      return;
+    }
+
+    setGiveRepSubmitting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('tg-give-reputation', {
+        body: { initData, targetUserId: authorId, reason: giveRepReason.trim() },
+      });
+
+      if (error) {
+        const errorBody = await error.context?.json?.().catch(() => null);
+        throw new Error(errorBody?.error || 'Ошибка');
+      }
+
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+
+      toast.success('+1 rep отправлено!');
+      setGiveRepOpen(false);
+      setGiveRepReason('');
+      
+      // Refresh profile to update reputation
+      loadProfile();
+      if (reputationModalOpen) {
+        loadReputationHistory();
+      }
+    } catch (error: any) {
+      console.error('Give rep error:', error);
+      toast.error(error.message || 'Не удалось отправить репутацию');
+    } finally {
+      setGiveRepSubmitting(false);
+    }
+  };
+
+  const handleReputationClick = () => {
+    setReputationModalOpen(true);
+    loadReputationHistory();
+  };
+
+  const handleReputationAuthorClick = (userId: string) => {
+    // Close reputation modal and switch to the new profile
+    setReputationModalOpen(false);
+    // We need to trigger a new profile open - this requires parent handling
+    // For now, just close and the user can navigate
+    onClose();
+    // Dispatch event to open new profile
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('open-public-profile', { detail: { authorId: userId } }));
+    }, 100);
   };
 
   const loadProfile = async () => {
@@ -358,10 +468,13 @@ export function PublicProfileModal({ isOpen, onClose, authorId }: PublicProfileM
 
                   {/* Stats */}
                   <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <div className="flex items-center gap-1">
+                    <button
+                      onClick={handleReputationClick}
+                      className="flex items-center gap-1 hover:text-primary transition-colors"
+                    >
                       <Star className="h-3.5 w-3.5" />
                       <span>{profile.reputation || 0} репутации</span>
-                    </div>
+                    </button>
                     <div className="flex items-center gap-1">
                       <FileText className="h-3.5 w-3.5" />
                       <span>{articles.length} статей</span>
@@ -371,6 +484,17 @@ export function PublicProfileModal({ isOpen, onClose, authorId }: PublicProfileM
                       <span>С {new Date(profile.created_at).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' })}</span>
                     </div>
                   </div>
+
+                  {/* Give Reputation Button */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3 gap-1.5"
+                    onClick={() => setGiveRepOpen(true)}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Дать репутацию
+                  </Button>
                 </div>
 
                 {/* Products - only for Premium users */}
@@ -593,6 +717,145 @@ export function PublicProfileModal({ isOpen, onClose, authorId }: PublicProfileM
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Reputation History Modal */}
+      <Dialog open={reputationModalOpen} onOpenChange={setReputationModalOpen}>
+        <DialogContent className="max-h-[85vh] max-w-md p-0">
+          <DialogHeader className="px-4 pt-4 pr-12">
+            <DialogTitle className="flex items-center gap-2">
+              <Star className="h-5 w-5 text-yellow-500" />
+              История репутации
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="max-h-[60vh] overflow-y-auto px-4 pb-4">
+            {reputationLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+              </div>
+            ) : reputationHistory.length === 0 ? (
+              <p className="py-8 text-center text-muted-foreground">
+                История репутации пуста
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {reputationHistory.map((entry) => {
+                  const fromUser = entry.from_user;
+                  const displayName = fromUser?.show_name !== false 
+                    ? fromUser?.first_name || 'Пользователь'
+                    : fromUser?.show_username !== false && fromUser?.username 
+                      ? `@${fromUser.username}` 
+                      : 'Пользователь';
+                  const displayAvatar = fromUser?.show_avatar !== false ? fromUser?.avatar_url : null;
+                  
+                  return (
+                    <div 
+                      key={entry.id} 
+                      className="flex items-center gap-3 rounded-xl bg-secondary/50 p-3"
+                    >
+                      <button
+                        onClick={() => fromUser?.id && handleReputationAuthorClick(fromUser.id)}
+                        className="shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                        disabled={!fromUser?.id}
+                      >
+                        {displayAvatar ? (
+                          <img
+                            src={displayAvatar}
+                            alt=""
+                            className="h-10 w-10 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
+                            <span className="text-sm">👤</span>
+                          </div>
+                        )}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <button
+                          onClick={() => fromUser?.id && handleReputationAuthorClick(fromUser.id)}
+                          className="text-sm font-medium hover:text-primary transition-colors text-left"
+                          disabled={!fromUser?.id}
+                        >
+                          {displayName}
+                        </button>
+                        <p className="text-xs text-muted-foreground">
+                          {entry.created_at 
+                            ? new Date(entry.created_at).toLocaleDateString('ru-RU', { 
+                                day: 'numeric', 
+                                month: 'short' 
+                              })
+                            : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <TrendingUp className="h-4 w-4 text-green-500" />
+                        <span className="font-bold text-green-500">+{entry.value}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Give Reputation Modal */}
+      <Dialog open={giveRepOpen} onOpenChange={setGiveRepOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-primary" />
+              Дать репутацию
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Укажите причину, почему вы хотите дать +1 rep этому пользователю. Вы можете давать репутацию одному пользователю раз в 24 часа.
+            </p>
+            
+            <Input
+              value={giveRepReason}
+              onChange={(e) => setGiveRepReason(e.target.value)}
+              placeholder="Причина (напр. 'За полезную статью')"
+              disabled={giveRepSubmitting}
+              maxLength={100}
+            />
+            
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setGiveRepOpen(false);
+                  setGiveRepReason('');
+                }}
+                disabled={giveRepSubmitting}
+                className="flex-1"
+              >
+                Отмена
+              </Button>
+              <Button
+                onClick={handleGiveRep}
+                disabled={giveRepSubmitting || !giveRepReason.trim()}
+                className="flex-1 gap-2"
+              >
+                {giveRepSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Отправка...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4" />
+                    +1 rep
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </>

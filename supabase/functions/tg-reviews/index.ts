@@ -180,6 +180,7 @@ ${suggestions ? `💡 <b>Пожелания/проблемы:</b>\n${suggestions
           rating,
           review_text,
           created_at,
+          user_profile_id,
           user:user_profile_id(first_name, username, avatar_url, show_name, show_username, show_avatar)
         `)
         .eq('status', 'approved')

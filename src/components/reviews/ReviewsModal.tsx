@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 interface ReviewsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onAuthorClick?: (authorId: string) => void;
 }
 
 interface Review {
@@ -25,6 +26,7 @@ interface Review {
   rating: number;
   review_text: string;
   created_at: string;
+  user_profile_id: string;
   user: {
     first_name: string | null;
     username: string | null;
@@ -40,7 +42,7 @@ interface ReviewStats {
   avgRating: number;
 }
 
-export function ReviewsModal({ isOpen, onClose }: ReviewsModalProps) {
+export function ReviewsModal({ isOpen, onClose, onAuthorClick }: ReviewsModalProps) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [stats, setStats] = useState<ReviewStats>({ totalReviews: 0, avgRating: 0 });
   const [isLoading, setIsLoading] = useState(true);
@@ -249,16 +251,28 @@ export function ReviewsModal({ isOpen, onClose }: ReviewsModalProps) {
                 reviews.map((review) => (
                   <div key={review.id} className="rounded-lg border border-border bg-muted/30 p-3">
                     <div className="mb-2 flex items-center gap-2">
-                      <Avatar className="h-8 w-8">
-                        {review.user?.show_avatar && review.user?.avatar_url ? (
-                          <AvatarImage src={review.user.avatar_url} />
-                        ) : null}
-                        <AvatarFallback>
-                          <User className="h-4 w-4" />
-                        </AvatarFallback>
-                      </Avatar>
+                      <button
+                        onClick={() => review.user_profile_id && onAuthorClick?.(review.user_profile_id)}
+                        className="cursor-pointer hover:opacity-80 transition-opacity"
+                        disabled={!review.user_profile_id || !onAuthorClick}
+                      >
+                        <Avatar className="h-8 w-8">
+                          {review.user?.show_avatar && review.user?.avatar_url ? (
+                            <AvatarImage src={review.user.avatar_url} />
+                          ) : null}
+                          <AvatarFallback>
+                            <User className="h-4 w-4" />
+                          </AvatarFallback>
+                        </Avatar>
+                      </button>
                       <div className="flex-1">
-                        <p className="text-sm font-medium">{getAuthorDisplay(review.user)}</p>
+                        <button
+                          onClick={() => review.user_profile_id && onAuthorClick?.(review.user_profile_id)}
+                          className="text-sm font-medium text-left hover:text-primary transition-colors"
+                          disabled={!review.user_profile_id || !onAuthorClick}
+                        >
+                          {getAuthorDisplay(review.user)}
+                        </button>
                         <p className="text-xs text-muted-foreground">{formatDate(review.created_at)}</p>
                       </div>
                       {renderStars(review.rating)}
