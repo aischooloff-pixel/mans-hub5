@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.tg-manage-product]
 verify_jwt = false
+
+[functions.tg-upload-product-media]
+verify_jwt = false

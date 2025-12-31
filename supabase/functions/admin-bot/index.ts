@@ -131,6 +131,7 @@ async function handleStart(chatId: number, userId: number) {
 📊 /stats — Статистика проекта
 👥 /users — Список пользователей
 👑 /premium — Управление подписками
+💰 /prices — Управление ценами тарифов
 📝 /pending — Статьи на модерации
 📰 /st — Список статей
 🚨 /zb — Жалобы на статьи
@@ -145,6 +146,10 @@ async function handleStart(chatId: number, userId: number) {
 /plus [telegram_id] [дней] — Выдать Plus подписку
 /prem [telegram_id] [дней] — Выдать Premium подписку
 /extend [telegram_id] [дней] — Продлить подписку
+
+<b>Управление ценами:</b>
+/set_price [plus|premium] [monthly|yearly] [цена] — Установить цену
+/set_discount [процент] — Установить скидку
 
 <b>Поиск статей:</b>
 /search_st [запрос] — Поиск по заголовку
@@ -880,6 +885,195 @@ async function handlePremCommand(chatId: number, userId: number, args: string) {
 
   const username = profile.username ? `@${profile.username}` : telegramId;
   await sendAdminMessage(chatId, `✅ Premium подписка выдана пользователю ${username} на ${days} дней (до ${newExpiry.toLocaleDateString('ru-RU')})`);
+}
+
+// Handle /prices command - show current pricing
+async function handlePrices(chatId: number, userId: number) {
+  if (!isAdmin(userId)) return;
+
+  const { data: pricing, error } = await supabase
+    .from('subscription_pricing')
+    .select('*')
+    .order('tier');
+
+  if (error || !pricing) {
+    await sendAdminMessage(chatId, '❌ Ошибка при загрузке цен');
+    return;
+  }
+
+  const plusData = pricing.find(p => p.tier === 'plus');
+  const premiumData = pricing.find(p => p.tier === 'premium');
+
+  const message = `💰 <b>Управление ценами тарифов</b>
+
+🔵 <b>Plus:</b>
+├ Месяц: ${plusData?.monthly_price || 0}₽ (было ${plusData?.monthly_original_price || 0}₽)
+└ Год: ${plusData?.yearly_price || 0}₽ (было ${plusData?.yearly_original_price || 0}₽)
+
+🟣 <b>Premium:</b>
+├ Месяц: ${premiumData?.monthly_price || 0}₽ (было ${premiumData?.monthly_original_price || 0}₽)
+└ Год: ${premiumData?.yearly_price || 0}₽ (было ${premiumData?.yearly_original_price || 0}₽)
+
+📊 <b>Скидка:</b> ${plusData?.discount_percent || 50}%
+📅 <b>Скидка за год:</b> ${plusData?.yearly_discount_percent || 30}%
+
+<b>Команды:</b>
+• <code>/set_price plus monthly 299</code> — установить цену Plus/месяц
+• <code>/set_price plus yearly 2990</code> — установить цену Plus/год
+• <code>/set_price premium monthly 2490</code> — установить цену Premium/месяц
+• <code>/set_price premium yearly 24900</code> — установить цену Premium/год
+• <code>/set_orig_price plus monthly 598</code> — установить старую цену
+• <code>/set_discount 50</code> — установить скидку (%)
+• <code>/set_yearly_discount 30</code> — установить годовую скидку (%)`;
+
+  await sendAdminMessage(chatId, message);
+}
+
+// Handle /set_price command
+async function handleSetPrice(chatId: number, userId: number, args: string) {
+  if (!isAdmin(userId)) return;
+
+  const parts = args.trim().split(/\s+/);
+  if (parts.length < 3) {
+    await sendAdminMessage(chatId, `💰 <b>Установка цены</b>
+
+Используйте:
+<code>/set_price [plus|premium] [monthly|yearly] [цена]</code>
+
+Примеры:
+<code>/set_price plus monthly 299</code>
+<code>/set_price premium yearly 24900</code>`);
+    return;
+  }
+
+  const tier = parts[0].toLowerCase();
+  const period = parts[1].toLowerCase();
+  const price = parseInt(parts[2]);
+
+  if (!['plus', 'premium'].includes(tier)) {
+    await sendAdminMessage(chatId, '❌ Тариф должен быть plus или premium');
+    return;
+  }
+
+  if (!['monthly', 'yearly'].includes(period)) {
+    await sendAdminMessage(chatId, '❌ Период должен быть monthly или yearly');
+    return;
+  }
+
+  if (isNaN(price) || price < 0) {
+    await sendAdminMessage(chatId, '❌ Цена должна быть положительным числом');
+    return;
+  }
+
+  const column = period === 'monthly' ? 'monthly_price' : 'yearly_price';
+  
+  const { error } = await supabase
+    .from('subscription_pricing')
+    .update({ [column]: price, updated_at: new Date().toISOString() })
+    .eq('tier', tier);
+
+  if (error) {
+    console.error('Error setting price:', error);
+    await sendAdminMessage(chatId, '❌ Ошибка при обновлении цены');
+    return;
+  }
+
+  const tierLabel = tier === 'plus' ? 'Plus' : 'Premium';
+  const periodLabel = period === 'monthly' ? 'месяц' : 'год';
+  await sendAdminMessage(chatId, `✅ Цена ${tierLabel} за ${periodLabel} установлена: ${price}₽`);
+}
+
+// Handle /set_orig_price command
+async function handleSetOrigPrice(chatId: number, userId: number, args: string) {
+  if (!isAdmin(userId)) return;
+
+  const parts = args.trim().split(/\s+/);
+  if (parts.length < 3) {
+    await sendAdminMessage(chatId, `💰 <b>Установка старой цены</b>
+
+Используйте:
+<code>/set_orig_price [plus|premium] [monthly|yearly] [цена]</code>`);
+    return;
+  }
+
+  const tier = parts[0].toLowerCase();
+  const period = parts[1].toLowerCase();
+  const price = parseInt(parts[2]);
+
+  if (!['plus', 'premium'].includes(tier) || !['monthly', 'yearly'].includes(period) || isNaN(price) || price < 0) {
+    await sendAdminMessage(chatId, '❌ Неверные параметры');
+    return;
+  }
+
+  const column = period === 'monthly' ? 'monthly_original_price' : 'yearly_original_price';
+  
+  const { error } = await supabase
+    .from('subscription_pricing')
+    .update({ [column]: price, updated_at: new Date().toISOString() })
+    .eq('tier', tier);
+
+  if (error) {
+    await sendAdminMessage(chatId, '❌ Ошибка при обновлении цены');
+    return;
+  }
+
+  await sendAdminMessage(chatId, `✅ Старая цена ${tier} за ${period} установлена: ${price}₽`);
+}
+
+// Handle /set_discount command
+async function handleSetDiscount(chatId: number, userId: number, args: string) {
+  if (!isAdmin(userId)) return;
+
+  const percent = parseInt(args.trim());
+  if (isNaN(percent) || percent < 0 || percent > 100) {
+    await sendAdminMessage(chatId, `📊 <b>Установка скидки</b>
+
+Используйте:
+<code>/set_discount [процент]</code>
+
+Пример:
+<code>/set_discount 50</code>`);
+    return;
+  }
+
+  const { error } = await supabase
+    .from('subscription_pricing')
+    .update({ discount_percent: percent, updated_at: new Date().toISOString() });
+
+  if (error) {
+    await sendAdminMessage(chatId, '❌ Ошибка при обновлении скидки');
+    return;
+  }
+
+  await sendAdminMessage(chatId, `✅ Скидка установлена: ${percent}%`);
+}
+
+// Handle /set_yearly_discount command
+async function handleSetYearlyDiscount(chatId: number, userId: number, args: string) {
+  if (!isAdmin(userId)) return;
+
+  const percent = parseInt(args.trim());
+  if (isNaN(percent) || percent < 0 || percent > 100) {
+    await sendAdminMessage(chatId, `📅 <b>Установка годовой скидки</b>
+
+Используйте:
+<code>/set_yearly_discount [процент]</code>
+
+Пример:
+<code>/set_yearly_discount 30</code>`);
+    return;
+  }
+
+  const { error } = await supabase
+    .from('subscription_pricing')
+    .update({ yearly_discount_percent: percent, updated_at: new Date().toISOString() });
+
+  if (error) {
+    await sendAdminMessage(chatId, '❌ Ошибка при обновлении скидки');
+    return;
+  }
+
+  await sendAdminMessage(chatId, `✅ Годовая скидка установлена: ${percent}%`);
 }
 
 // Subscription callback handlers
@@ -3059,6 +3253,28 @@ Deno.serve(async (req) => {
         await handleSearch(chat.id, from.id, '');
       } else if (text === '/premium') {
         await handlePremium(chat.id, from.id);
+      } else if (text === '/prices') {
+        await handlePrices(chat.id, from.id);
+      } else if (text?.startsWith('/set_price ')) {
+        const args = text.replace('/set_price ', '').trim();
+        await handleSetPrice(chat.id, from.id, args);
+      } else if (text === '/set_price') {
+        await handleSetPrice(chat.id, from.id, '');
+      } else if (text?.startsWith('/set_orig_price ')) {
+        const args = text.replace('/set_orig_price ', '').trim();
+        await handleSetOrigPrice(chat.id, from.id, args);
+      } else if (text === '/set_orig_price') {
+        await handleSetOrigPrice(chat.id, from.id, '');
+      } else if (text?.startsWith('/set_discount ')) {
+        const args = text.replace('/set_discount ', '').trim();
+        await handleSetDiscount(chat.id, from.id, args);
+      } else if (text === '/set_discount') {
+        await handleSetDiscount(chat.id, from.id, '');
+      } else if (text?.startsWith('/set_yearly_discount ')) {
+        const args = text.replace('/set_yearly_discount ', '').trim();
+        await handleSetYearlyDiscount(chat.id, from.id, args);
+      } else if (text === '/set_yearly_discount') {
+        await handleSetYearlyDiscount(chat.id, from.id, '');
       } else if (text?.startsWith('/extend ')) {
         const args = text.replace('/extend ', '').trim();
         await handleExtendCommand(chat.id, from.id, args);

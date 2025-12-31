@@ -1,17 +1,78 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X, Check, Crown, Sparkles, MessageCircle, Users, Infinity, BadgeCheck, Bot, FileText, Headphones, Music, ShoppingBag, GraduationCap, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
 
 interface PremiumModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+interface PricingData {
+  plus: {
+    monthly: number;
+    yearly: number;
+    monthlyOriginal: number;
+    yearlyOriginal: number;
+  };
+  premium: {
+    monthly: number;
+    yearly: number;
+    monthlyOriginal: number;
+    yearlyOriginal: number;
+  };
+  discount: number;
+}
+
 export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
   const [currentSlide, setCurrentSlide] = useState(1);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [pricing, setPricing] = useState<PricingData>({
+    plus: { monthly: 299, yearly: 2510, monthlyOriginal: 598, yearlyOriginal: 5020 },
+    premium: { monthly: 2490, yearly: 20916, monthlyOriginal: 4980, yearlyOriginal: 41832 },
+    discount: 50,
+  });
+
+  useEffect(() => {
+    if (isOpen) {
+      loadPricing();
+    }
+  }, [isOpen]);
+
+  const loadPricing = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('subscription_pricing')
+        .select('*');
+      
+      if (!error && data) {
+        const plusData = data.find(p => p.tier === 'plus');
+        const premiumData = data.find(p => p.tier === 'premium');
+        
+        if (plusData && premiumData) {
+          setPricing({
+            plus: {
+              monthly: plusData.monthly_price,
+              yearly: plusData.yearly_price,
+              monthlyOriginal: plusData.monthly_original_price,
+              yearlyOriginal: plusData.yearly_original_price,
+            },
+            premium: {
+              monthly: premiumData.monthly_price,
+              yearly: premiumData.yearly_price,
+              monthlyOriginal: premiumData.monthly_original_price,
+              yearlyOriginal: premiumData.yearly_original_price,
+            },
+            discount: plusData.discount_percent,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error loading pricing:', err);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -33,8 +94,8 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
       id: 'plus',
       name: 'Plus',
       description: 'Расширенные возможности',
-      price: { monthly: 299, yearly: 2990 },
-      originalPrice: { monthly: 598, yearly: 5980 },
+      price: { monthly: pricing.plus.monthly, yearly: pricing.plus.yearly },
+      originalPrice: { monthly: pricing.plus.monthlyOriginal, yearly: pricing.plus.yearlyOriginal },
       features: [
         { icon: MessageCircle, text: 'Соц сети в профиле' },
         { icon: FileText, text: 'Описание профиля' },
@@ -49,8 +110,8 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
       id: 'premium',
       name: 'Premium',
       description: 'Максимум возможностей',
-      price: { monthly: 2490, yearly: 24900 },
-      originalPrice: { monthly: 4980, yearly: 49800 },
+      price: { monthly: pricing.premium.monthly, yearly: pricing.premium.yearly },
+      originalPrice: { monthly: pricing.premium.monthlyOriginal, yearly: pricing.premium.yearlyOriginal },
       features: [
         { icon: Sparkles, text: 'Все что в Plus' },
         { icon: Crown, text: 'Сообщество предпринимателей' },
@@ -118,12 +179,12 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
           <div className="mb-6 text-center">
             <h2 className="mb-2 font-heading text-2xl font-bold">Выберите тариф</h2>
             <div className="flex items-center justify-center gap-2 mb-4">
-              <span className="rounded-full bg-destructive/10 px-3 py-1 text-sm font-medium text-destructive">
-                Скидка 50%
+              <span className="rounded-full bg-destructive px-4 py-2 text-base font-bold text-destructive-foreground">
+                Скидка {pricing.discount}%
               </span>
             </div>
             <p className="text-muted-foreground text-sm">
-              Выберите годовой тариф для экономии до 50%
+              Выберите годовой тариф для экономии 30%
             </p>
           </div>
 
@@ -139,7 +200,7 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                Год
+                Год (-30%)
               </button>
               <button
                 onClick={() => setBillingPeriod('monthly')}
@@ -169,7 +230,7 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
               >
                 {plan.popular && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <span className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground">
+                    <span className="rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground whitespace-nowrap">
                       Выбирают чаще
                     </span>
                   </div>
@@ -207,17 +268,16 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
                   ))}
                 </div>
 
-                <Button
-                  onClick={() => plan.id === 'plus' ? handlePayment(plan.id) : null}
-                  className={cn(
-                    'w-full',
-                    plan.id === 'free' ? 'variant-secondary' : ''
-                  )}
-                  variant={plan.id === 'free' ? 'secondary' : 'default'}
-                  disabled={plan.id === 'free' || plan.id === 'premium'}
-                >
-                  {plan.id === 'free' ? 'Текущий план' : plan.id === 'plus' ? 'Выбрать' : 'Скоро'}
-                </Button>
+                <div className="flex justify-center">
+                  <Button
+                    onClick={() => plan.id === 'plus' ? handlePayment(plan.id) : null}
+                    className="w-full"
+                    variant={plan.id === 'free' ? 'secondary' : 'default'}
+                    disabled={plan.id === 'free' || plan.id === 'premium'}
+                  >
+                    {plan.id === 'free' ? 'Текущий план' : plan.id === 'plus' ? 'Выбрать' : 'Скоро'}
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -242,7 +302,7 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
                 >
                   {plan.popular && (
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                      <span className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground whitespace-nowrap">
+                      <span className="rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground whitespace-nowrap">
                         Выбирают чаще
                       </span>
                     </div>
@@ -280,14 +340,16 @@ export function PremiumModal({ isOpen, onClose }: PremiumModalProps) {
                     ))}
                   </div>
 
-                  <Button
-                    onClick={() => plan.id === 'plus' ? handlePayment(plan.id) : null}
-                    className="w-full"
-                    variant={plan.id === 'free' ? 'secondary' : 'default'}
-                    disabled={plan.id === 'free' || plan.id === 'premium'}
-                  >
-                    {plan.id === 'free' ? 'Текущий план' : plan.id === 'plus' ? 'Выбрать' : 'Скоро'}
-                  </Button>
+                  <div className="flex justify-center">
+                    <Button
+                      onClick={() => plan.id === 'plus' ? handlePayment(plan.id) : null}
+                      className="w-full"
+                      variant={plan.id === 'free' ? 'secondary' : 'default'}
+                      disabled={plan.id === 'free' || plan.id === 'premium'}
+                    >
+                      {plan.id === 'free' ? 'Текущий план' : plan.id === 'plus' ? 'Выбрать' : 'Скоро'}
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

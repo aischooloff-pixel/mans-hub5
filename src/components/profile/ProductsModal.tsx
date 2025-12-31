@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { X, Plus, Package, Trash2, ExternalLink, Edit2, Image, Youtube } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, Plus, Package, Trash2, ExternalLink, Edit2, Image, Youtube, Upload, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useTelegram } from '@/hooks/use-telegram';
 import { toast } from 'sonner';
+import { PodcastPlayerModal } from '@/components/podcasts/PodcastPlayerModal';
 
 interface Product {
   id: string;
@@ -42,6 +43,10 @@ export function ProductsModal({ isOpen, onClose, userProfileId }: ProductsModalP
     link: '',
   });
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [videoPlayerOpen, setVideoPlayerOpen] = useState(false);
+  const [videoToPlay, setVideoToPlay] = useState<{ id: string; title: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen && userProfileId) {
@@ -164,6 +169,70 @@ export function ProductsModal({ isOpen, onClose, userProfileId }: ProductsModalP
     return 'image';
   };
 
+  const extractYoutubeId = (url: string): string | null => {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const initData = webApp?.initData;
+    if (!initData) {
+      toast.error('Ошибка авторизации');
+      return;
+    }
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Поддерживаются только изображения (JPEG, PNG, GIF, WebP)');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Максимальный размер файла: 5 МБ');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const formDataUpload = new FormData();
+      formDataUpload.append('initData', initData);
+      formDataUpload.append('file', file);
+
+      const { data, error } = await supabase.functions.invoke('tg-upload-product-media', {
+        body: formDataUpload,
+      });
+
+      if (error) throw error;
+      if (data?.url) {
+        setFormData({ ...formData, media_url: data.url });
+        toast.success('Изображение загружено');
+      }
+    } catch (err) {
+      console.error('Upload error:', err);
+      toast.error('Ошибка загрузки');
+    }
+    setUploading(false);
+    
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handlePlayVideo = (url: string) => {
+    const videoId = extractYoutubeId(url);
+    if (videoId) {
+      setVideoToPlay({ id: videoId, title: 'Видео продукта' });
+      setVideoPlayerOpen(true);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -242,12 +311,67 @@ export function ProductsModal({ isOpen, onClose, userProfileId }: ProductsModalP
               </div>
 
               <div>
-                <label className="text-sm text-muted-foreground">Медиа (ссылка на изображение или YouTube)</label>
-                <Input
-                  value={formData.media_url}
-                  onChange={(e) => setFormData({ ...formData, media_url: e.target.value })}
-                  placeholder="https://..."
-                />
+                <label className="text-sm text-muted-foreground">Медиа</label>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Input
+                      value={formData.media_url}
+                      onChange={(e) => setFormData({ ...formData, media_url: e.target.value })}
+                      placeholder="Ссылка на изображение или YouTube..."
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                    >
+                      {uploading ? (
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                      ) : (
+                        <Upload className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif,image/webp"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                  </div>
+                  {formData.media_url && (
+                    <div className="relative rounded-lg overflow-hidden bg-secondary h-32">
+                      {getMediaType(formData.media_url) === 'youtube' ? (
+                        <div 
+                          className="w-full h-full flex items-center justify-center cursor-pointer bg-red-500/20 hover:bg-red-500/30 transition-colors"
+                          onClick={() => handlePlayVideo(formData.media_url)}
+                        >
+                          <Play className="h-8 w-8 text-red-500" />
+                        </div>
+                      ) : (
+                        <img
+                          src={formData.media_url}
+                          alt="Preview"
+                          className="w-full h-full object-cover"
+                        />
+                      )}
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-2 right-2 h-6 w-6"
+                        onClick={() => setFormData({ ...formData, media_url: '' })}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Загрузите изображение или вставьте ссылку на YouTube видео
+                  </p>
+                </div>
               </div>
 
               <div>
@@ -306,10 +430,17 @@ export function ProductsModal({ isOpen, onClose, userProfileId }: ProductsModalP
                     >
                       <div className="flex items-start gap-3">
                         {product.media_url && (
-                          <div className="w-16 h-16 rounded-lg bg-secondary flex-shrink-0 overflow-hidden">
+                          <div 
+                            className="w-16 h-16 rounded-lg bg-secondary flex-shrink-0 overflow-hidden cursor-pointer"
+                            onClick={() => {
+                              if (product.media_type === 'youtube' && product.media_url) {
+                                handlePlayVideo(product.media_url);
+                              }
+                            }}
+                          >
                             {product.media_type === 'youtube' ? (
-                              <div className="w-full h-full flex items-center justify-center bg-red-500/20">
-                                <Youtube className="h-6 w-6 text-red-500" />
+                              <div className="w-full h-full flex items-center justify-center bg-red-500/20 hover:bg-red-500/30 transition-colors">
+                                <Play className="h-6 w-6 text-red-500" />
                               </div>
                             ) : (
                               <img
@@ -366,6 +497,27 @@ export function ProductsModal({ isOpen, onClose, userProfileId }: ProductsModalP
           )}
         </div>
       </div>
+
+      {/* Video Player Modal */}
+      {videoToPlay && (
+        <PodcastPlayerModal
+          isOpen={videoPlayerOpen}
+          onClose={() => {
+            setVideoPlayerOpen(false);
+            setVideoToPlay(null);
+          }}
+          podcast={{
+            id: 'product-video',
+            title: videoToPlay.title,
+            youtube_id: videoToPlay.id,
+            youtube_url: `https://youtube.com/watch?v=${videoToPlay.id}`,
+            description: '',
+            thumbnail_url: '',
+            duration: '',
+            created_at: '',
+          }}
+        />
+      )}
     </div>
   );
 }

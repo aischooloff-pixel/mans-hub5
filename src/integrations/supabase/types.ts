@@ -678,6 +678,45 @@ export type Database = {
           },
         ]
       }
+      subscription_pricing: {
+        Row: {
+          created_at: string | null
+          discount_percent: number
+          id: string
+          monthly_original_price: number
+          monthly_price: number
+          tier: string
+          updated_at: string | null
+          yearly_discount_percent: number
+          yearly_original_price: number
+          yearly_price: number
+        }
+        Insert: {
+          created_at?: string | null
+          discount_percent?: number
+          id?: string
+          monthly_original_price?: number
+          monthly_price?: number
+          tier: string
+          updated_at?: string | null
+          yearly_discount_percent?: number
+          yearly_original_price?: number
+          yearly_price?: number
+        }
+        Update: {
+          created_at?: string | null
+          discount_percent?: number
+          id?: string
+          monthly_original_price?: number
+          monthly_price?: number
+          tier?: string
+          updated_at?: string | null
+          yearly_discount_percent?: number
+          yearly_original_price?: number
+          yearly_price?: number
+        }
+        Relationships: []
+      }
       support_questions: {
         Row: {
           admin_message_id: number | null
