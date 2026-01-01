@@ -90,27 +90,31 @@ export function UserBadges({ userProfileId, variant = 'full', className }: UserB
   );
 }
 
-// Badge display for article cards (shows only staff badges)
+// Badge display for article cards (shows staff badge if exists, otherwise top badge)
 interface AuthorBadgeProps {
   userProfileId: string;
   className?: string;
   variant?: 'default' | 'compact';
-  staffOnly?: boolean; // If true, only show staff badges (for articles)
 }
 
-export function AuthorBadge({ userProfileId, className, variant = 'default', staffOnly = true }: AuthorBadgeProps) {
+export function AuthorBadge({ userProfileId, className, variant = 'default' }: AuthorBadgeProps) {
   const { getTopBadge, getStaffBadge } = useBadges();
   const [badge, setBadge] = useState<Badge | null>(null);
 
   useEffect(() => {
     if (!userProfileId) return;
-    // For articles - only staff badges; for profiles - top badge
-    if (staffOnly) {
-      getStaffBadge(userProfileId).then(setBadge);
-    } else {
-      getTopBadge(userProfileId).then(setBadge);
-    }
-  }, [userProfileId, getTopBadge, getStaffBadge, staffOnly]);
+    // First try to get staff badge, if not found - get top badge
+    const fetchBadge = async () => {
+      const staffBadge = await getStaffBadge(userProfileId);
+      if (staffBadge) {
+        setBadge(staffBadge);
+      } else {
+        const topBadge = await getTopBadge(userProfileId);
+        setBadge(topBadge);
+      }
+    };
+    fetchBadge();
+  }, [userProfileId, getTopBadge, getStaffBadge]);
 
   if (!badge) return null;
 
