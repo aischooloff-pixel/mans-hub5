@@ -4165,9 +4165,9 @@ async function handleHiPendingInput(chatId: number, userId: number, text: string
   if (!data?.value) return false;
 
   const mode = data.value;
-  await supabase.from('admin_settings').delete().eq('key', `hi_pending_${userId}`);
 
   if (mode === 'text') {
+    await supabase.from('admin_settings').delete().eq('key', `hi_pending_${userId}`);
     await supabase.from('admin_settings').upsert({ key: 'welcome_message_text', value: text }, { onConflict: 'key' });
     await sendAdminMessage(chatId, '✅ Текст сохранён!', {
       reply_markup: { inline_keyboard: [[{ text: '📋 К настройкам', callback_data: 'hi:back' }]] }
@@ -4175,21 +4175,106 @@ async function handleHiPendingInput(chatId: number, userId: number, text: string
     return true;
   }
 
-  if (mode === 'media') {
-    const url = text.trim();
-    let mediaType = 'photo';
-    if (url.includes('.mp4') || url.includes('.mov') || url.includes('video')) {
-      mediaType = 'video';
-    }
-    await supabase.from('admin_settings').upsert({ key: 'welcome_message_media_url', value: url }, { onConflict: 'key' });
-    await supabase.from('admin_settings').upsert({ key: 'welcome_message_media_type', value: mediaType }, { onConflict: 'key' });
-    await sendAdminMessage(chatId, `✅ Медиа добавлено (${mediaType})!`, {
-      reply_markup: { inline_keyboard: [[{ text: '📋 К настройкам', callback_data: 'hi:back' }]] }
+  // For media mode, we expect a photo/video, not text - ignore text input
+  if (mode === 'media' && text) {
+    await sendAdminMessage(chatId, '📷 Отправьте фото или видео, не текст.', {
+      reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'hi:cancel' }]] }
     });
     return true;
   }
 
   return false;
+}
+
+// Handle photo/video uploads for /hi command
+async function handleHiMediaUpload(chatId: number, userId: number, message: any): Promise<boolean> {
+  const { data } = await supabase.from('admin_settings').select('value').eq('key', `hi_pending_${userId}`).maybeSingle();
+  if (!data?.value || data.value !== 'media') return false;
+
+  await supabase.from('admin_settings').delete().eq('key', `hi_pending_${userId}`);
+
+  let fileId: string | null = null;
+  let mediaType = 'photo';
+
+  // Check for photo
+  if (message.photo && message.photo.length > 0) {
+    // Get the largest photo
+    fileId = message.photo[message.photo.length - 1].file_id;
+    mediaType = 'photo';
+  }
+  // Check for video
+  else if (message.video) {
+    fileId = message.video.file_id;
+    mediaType = 'video';
+  }
+  // Check for animation (GIF)
+  else if (message.animation) {
+    fileId = message.animation.file_id;
+    mediaType = 'animation';
+  }
+
+  if (!fileId) {
+    await sendAdminMessage(chatId, '❌ Не удалось получить файл. Попробуйте ещё раз.', {
+      reply_markup: { inline_keyboard: [[{ text: '📋 К настройкам', callback_data: 'hi:back' }]] }
+    });
+    return true;
+  }
+
+  try {
+    // Get file path from Telegram
+    const fileInfoUrl = `https://api.telegram.org/bot${ADMIN_BOT_TOKEN}/getFile?file_id=${fileId}`;
+    const fileInfoRes = await fetch(fileInfoUrl);
+    const fileInfo = await fileInfoRes.json();
+
+    if (!fileInfo.ok || !fileInfo.result?.file_path) {
+      throw new Error('Failed to get file path');
+    }
+
+    // Download file from Telegram
+    const fileUrl = `https://api.telegram.org/file/bot${ADMIN_BOT_TOKEN}/${fileInfo.result.file_path}`;
+    const fileRes = await fetch(fileUrl);
+    const fileBlob = await fileRes.blob();
+
+    // Generate unique filename
+    const ext = fileInfo.result.file_path.split('.').pop() || (mediaType === 'video' ? 'mp4' : 'jpg');
+    const fileName = `welcome_${Date.now()}.${ext}`;
+
+    // Upload to Supabase storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('product-media')
+      .upload(`welcome/${fileName}`, fileBlob, {
+        contentType: fileBlob.type,
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      throw uploadError;
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('product-media')
+      .getPublicUrl(`welcome/${fileName}`);
+
+    const publicUrl = urlData.publicUrl;
+
+    // Save to settings
+    await supabase.from('admin_settings').upsert({ key: 'welcome_message_media_url', value: publicUrl }, { onConflict: 'key' });
+    await supabase.from('admin_settings').upsert({ key: 'welcome_message_media_type', value: mediaType }, { onConflict: 'key' });
+
+    await sendAdminMessage(chatId, `✅ ${mediaType === 'video' ? 'Видео' : mediaType === 'animation' ? 'GIF' : 'Фото'} сохранено!`, {
+      reply_markup: { inline_keyboard: [[{ text: '📋 К настройкам', callback_data: 'hi:back' }]] }
+    });
+
+  } catch (error) {
+    console.error('Error uploading media:', error);
+    await sendAdminMessage(chatId, '❌ Ошибка загрузки медиа. Попробуйте ещё раз.', {
+      reply_markup: { inline_keyboard: [[{ text: '📋 К настройкам', callback_data: 'hi:back' }]] }
+    });
+  }
+
+  return true;
 }
 // ==================== END /hi COMMAND ====================
 
@@ -4311,12 +4396,20 @@ Deno.serve(async (req) => {
 
     // Handle messages
     if (update.message) {
-      const { chat, text, from } = update.message;
+      const { chat, text, from, photo, video, animation } = update.message;
 
       // Check admin access
       if (!isAdmin(from.id)) {
         await sendAdminMessage(chat.id, '⛔ Доступ запрещён. Этот бот только для администраторов.');
         return new Response('OK', { headers: corsHeaders });
+      }
+
+      // FIRST: Check if this is a media upload for /hi command
+      if (photo || video || animation) {
+        const mediaHandled = await handleHiMediaUpload(chat.id, from.id, update.message);
+        if (mediaHandled) {
+          return new Response('OK', { headers: corsHeaders });
+        }
       }
 
       // Commands
