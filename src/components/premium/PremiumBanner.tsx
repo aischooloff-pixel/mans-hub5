@@ -33,7 +33,7 @@ export function PremiumBanner({ className, onClick }: PremiumBannerProps) {
           </div>
           <div>
             <h3 className="font-heading text-lg font-semibold">
-              Premium
+              Plus
             </h3>
             <p className="text-xs text-muted-foreground">
               Получите максимум от ManHub
