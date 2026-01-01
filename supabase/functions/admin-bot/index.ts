@@ -3029,37 +3029,61 @@ async function handleBroadcastConfirm(callbackQuery: any) {
 
   await sendAdminMessage(message.chat.id, `📤 Отправка сообщения ${users.length} пользователям...`);
 
-  const broadcastText = state.text;
+  const broadcastText = (state.text ?? '').toString();
   let sent = 0;
   let failed = 0;
 
-  for (const user of users) {
-    if (user.telegram_id) {
-      try {
-        let result;
-        if (state.media_id && state.media_type === 'photo') {
-          result = await sendUserPhoto(user.telegram_id, state.media_id, broadcastText);
-        } else if (state.media_id && state.media_type === 'video') {
-          result = await sendUserVideo(user.telegram_id, state.media_id, broadcastText);
-        } else {
-          result = await sendUserMessage(user.telegram_id, broadcastText);
-        }
+  // Collect a few distinct failure reasons to show in admin report
+  const failureReasons = new Map<string, number>();
 
-        if (result.ok) {
-          sent++;
-        } else {
-          failed++;
-        }
-      } catch (e) {
-        failed++;
+  console.log('Broadcast confirm: start', {
+    users: users.length,
+    hasMedia: Boolean(state.media_id),
+    mediaType: state.media_type,
+  });
+
+  for (const user of users) {
+    if (!user.telegram_id) continue;
+
+    try {
+      let result: any;
+      if (state.media_id && state.media_type === 'photo') {
+        result = await sendUserPhoto(user.telegram_id, state.media_id, broadcastText);
+      } else if (state.media_id && state.media_type === 'video') {
+        result = await sendUserVideo(user.telegram_id, state.media_id, broadcastText);
+      } else {
+        result = await sendUserMessage(user.telegram_id, broadcastText);
       }
+
+      if (result?.ok) {
+        sent++;
+        continue;
+      }
+
+      failed++;
+      const reason = `${result?.error_code ?? 'ERR'}: ${result?.description ?? 'Unknown error'}`;
+      failureReasons.set(reason, (failureReasons.get(reason) ?? 0) + 1);
+      console.warn('Broadcast send failed:', { reason });
+    } catch (e) {
+      failed++;
+      const reason = e instanceof Error ? e.message : String(e);
+      failureReasons.set(reason, (failureReasons.get(reason) ?? 0) + 1);
+      console.error('Broadcast send exception:', reason);
     }
   }
+
+  const topReasons = [...failureReasons.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([reason, count]) => `• ${count}× ${reason}`)
+    .join('\n');
 
   await sendAdminMessage(message.chat.id, `✅ <b>Рассылка завершена</b>
 
 📤 Отправлено: ${sent}
-❌ Не доставлено: ${failed}`);
+❌ Не доставлено: ${failed}${failed > 0 && topReasons ? `\n\n<b>Причины:</b>\n${topReasons}\n\n<i>Чаще всего это значит, что пользователь не запускал бота или заблокировал его.</i>` : ''}`);
+
+  console.log('Broadcast confirm: done', { sent, failed });
 }
 
 // Handle broadcast cancel
@@ -5170,7 +5194,7 @@ async function handleHiMediaUpload(chatId: number, userId: number, message: any)
 // ==================== END /hi COMMAND ====================
 
 // Send new article notification to admin
-export async function sendModerationNotification(article: any) {
+async function sendModerationNotification(article: any) {
   const shortId = await getOrCreateShortId(article.id);
   const authorDisplay = article.author?.username ? `@${article.author.username}` : `ID:${article.author?.telegram_id || 'N/A'}`;
 
