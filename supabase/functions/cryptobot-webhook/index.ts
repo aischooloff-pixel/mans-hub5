@@ -60,8 +60,7 @@ async function generateCommunityInviteLink(): Promise<string | null> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: chatId,
-          member_limit: 1, // One-time use
-          creates_join_request: true, // Requires admin approval
+          member_limit: 1, // One-time use link
         }),
       }
     );
