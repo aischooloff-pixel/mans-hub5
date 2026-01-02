@@ -54,6 +54,7 @@ export default function Index() {
         articles_count: 0,
         is_premium: article.author.is_premium || false,
         created_at: article.author.created_at || '',
+        subscription_tier: article.author.subscription_tier || undefined,
       } : undefined,
       category_id: article.category_id || '',
       topic_id: '',
@@ -146,6 +147,7 @@ export default function Index() {
         articles_count: 0,
         is_premium: author.is_premium || false,
         created_at: '',
+        subscription_tier: author.subscription_tier || undefined,
       };
     }
     
@@ -153,17 +155,15 @@ export default function Index() {
     return {
       id: author.id,
       telegram_id: 0,
-      username: author.show_username !== false ? author.username || '' : '',
-      first_name: author.show_name !== false ? author.first_name || '' : 'Аноним',
-      last_name: author.show_name !== false ? author.last_name || undefined : undefined,
-      avatar_url:
-        author.show_avatar !== false
-          ? author.avatar_url || undefined
-          : `https://api.dicebear.com/7.x/shapes/svg?seed=${author.id}`,
+      username: author.username || '',
+      first_name: author.first_name || '',
+      last_name: author.last_name || undefined,
+      avatar_url: author.avatar_url || undefined,
       reputation: author.reputation || 0,
       articles_count: 0,
       is_premium: author.is_premium || false,
       created_at: '',
+      subscription_tier: author.subscription_tier || undefined,
     };
   };
 
