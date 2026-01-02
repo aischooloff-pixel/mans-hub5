@@ -73,11 +73,11 @@ export function ArticleListCard({
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 {article.is_anonymous ? 'Аноним' : article.author?.first_name}
+                {!article.is_anonymous && (article.author?.subscription_tier === 'plus' || article.author?.subscription_tier === 'premium') && (
+                  <Crown className="h-3 w-3 text-yellow-500" />
+                )}
                 {!article.is_anonymous && article.author?.id && (
                   <AuthorBadge userProfileId={article.author.id} variant="compact" />
-                )}
-                {!article.is_anonymous && article.author?.is_premium && (
-                  <Crown className="h-3 w-3 text-yellow-500" />
                 )}
               </span>
               <span>•</span>
